@@ -17,16 +17,66 @@ import torchvision.transforms as transforms
 
 
 DATA = 'Cropped_birdsong_2_images_per_song/'
-EPOCHS = 1000
+EPOCHS = 5000
+
+
+
+
 
 
 trill = []
 whistle = []
 for f in os.listdir(DATA):
     if 'segment1' in f:
-        trill.append(Image.open(DATA+f))
+        im = Image.open(DATA+f)
+        trill.append(im)
     if 'segment2' in f:
-        whistle.append(Image.open(DATA+f))
+        im = Image.open(DATA+f)
+        whistle.append(im)
+
+shapesr = []
+shapesc = []
+for i, s in enumerate(trill):
+    shapesr.append(s.size[0])
+    shapesc.append(s.size[1])
+    shapesr.append(whistle[i].size[0])
+    shapesc.append(whistle[i].size[1])
+
+print(min(shapesr), max(shapesr), np.average(shapesr))
+print(min(shapesc), max(shapesc), np.average(shapesc))
+
+width = max(shapesr)
+height = max(shapesc)
+
+
+
+c = np.ones([(47*2), 1, height, width])
+clight = np.ones([(47*2), 1, height, width])
+cdark = np.ones([(47*2), 1, height, width])
+for idx in range(len(cdark)):
+    cdark[idx,...] = 0.3
+
+for idx in range(len(clight)):
+    clight[idx,...] = 0.7
+
+c = torch.FloatTensor(c)
+cdark = torch.FloatTensor(cdark)
+clight = torch.FloatTensor(clight)
+
+
+
+
+
+
+trill = []
+whistle = []
+for f in os.listdir(DATA):
+    if 'segment1' in f:
+        im = Image.open(DATA+f)
+        trill.append(im.resize((width, height), Image.ANTIALIAS))
+    if 'segment2' in f:
+        im = Image.open(DATA+f)
+        whistle.append(im.resize((width, height), Image.ANTIALIAS))
 
 print('trill samples:', len(trill), 'whistle samples:', len(whistle))
 
@@ -111,12 +161,13 @@ class Siamese(nn.Module):
         self.relu = nn.ReLU()
         self.sig = nn.Sigmoid()
         self.linear = nn.Linear(4096, 1)
+        self.flat = nn.Flatten(start_dim=1)
     def forward(self, x):
         out = self.pool(self.relu(self.conv(x)))
         out = self.pool(self.relu(self.conv2(out)))
         out = self.pool(self.relu(self.conv3(out)))
         out = self.relu(self.conv4(out))
-        out = torch.flatten(out)
+        out = self.flat(out)
         out = self.fc(out)
         out = self.sig(out)
         return out
@@ -125,7 +176,6 @@ class Siamese(nn.Module):
         return pred
 
 model = Siamese()
-
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
@@ -141,24 +191,30 @@ for epoch in range(EPOCHS):
         else:
             model.eval()
         n_correct = 0
-        for i, samp in enumerate(data[phase]):
-            k, v = samp
-            # if i < len(data[phase])-20:
-            #     idx = [idx for idx in np.random.choice(np.arange(i+20, len(data[phase])), 1, replace=False) if idx != i]
-            # elif i >= len(data[phase])-20:
-            #     idx = [idx for idx in np.random.choice(i-20, 1, replace=False) if idx != i]
-            a = np.arange(0, len(data[phase]))
-            a = a[a!=i]
-            idx = [idx for idx in np.random.choice(a, 1, replace=False) if idx != i]
-            randomwhistle = torch.from_numpy(data[phase][idx[0]][1]).to(torch.FloatTensor()).unsqueeze(0).unsqueeze(0)
-            xtrill = torch.from_numpy(k).to(torch.FloatTensor()).unsqueeze(0).unsqueeze(0).to(device)
-            xwhistle = torch.from_numpy(v).to(torch.FloatTensor()).unsqueeze(0).unsqueeze(0)
-            inwhistle = torch.cat((randomwhistle.to(device), xwhistle.to(device)), axis=0)
-            print(inwhistle.shape)
-            target = [torch.FloatTensor([0]).to(device), torch.FloatTensor([1]).to(device)]
+        # for i, samp in enumerate(data[phase]):
+        for i in range(len(c)):
+            # k, v = samp
+            # #if i < len(data[phase])-20:
+            #  #   idx = [idx for idx in np.random.choice(np.arange(i+20, len(data[phase])), 1, replace=False) if idx != i]
+            # #elif i >= len(data[phase])-20:
+            #  #   idx = [idx for idx in np.random.choice(i-20, 1, replace=False) if idx != i]
+            # a = np.arange(0, len(data[phase]))
+            # a = a[a!=i]
+            # idx = [idx for idx in np.random.choice(a, 1, replace=False) if idx != i]
+            # randomwhistle = torch.from_numpy(data[phase][idx[0]][1]).to(torch.FloatTensor()).unsqueeze(0).unsqueeze(0)
+            # xtrill = torch.from_numpy(k).to(torch.FloatTensor()).unsqueeze(0).unsqueeze(0).to(device)
+            # intrill = torch.cat((xtrill.to(device), xtrill.to(device)), axis=0)
+            inc = (torch.cat((c[:1], c[:1]), axis=0)).to(device)
+            # xwhistle = torch.from_numpy(v).to(torch.FloatTensor()).unsqueeze(0).unsqueeze(0)
+            # inwhistle = torch.cat((randomwhistle.to(device), xwhistle.to(device)), axis=0)
+            inw = (torch.cat((cdark[:1], clight[:1]), axis=0)).to(device)
+            # target = torch.cat((torch.FloatTensor([[0]]).to(device), torch.FloatTensor([[1]]).to(device)), axis=0)
+            target = torch.cat((torch.FloatTensor([[0]]).to(device), torch.FloatTensor([[1]]).to(device)), axis=0)
             with torch.set_grad_enabled(phase == 'train'):
-                outtrill = model(xtrill)
-                outwhistle = model(inwhistle)
+                # outtrill = model(intrill)
+                # outwhistle = model(inwhistle)
+                outtrill = model(inc)
+                outwhistle = model(inw)
                 L1 = torch.abs(outtrill- outwhistle)
                 prediction = model.predict(L1)
                 preds = torch.round(prediction)
@@ -166,39 +222,16 @@ for epoch in range(EPOCHS):
                 if phase == 'train':
                     loss.backward()
                     optimizer.step()
-            if preds == target:
+            if preds[0,] == target[0,]:
                 n_correct += 1
-        if phase == 'train' and n_correct >= 1:
-            #     sys.stdout.write("Train Correct: %f%%   \r" % ((n_correct/(i+1))*100) )
-            #     sys.stdout.flush()
-            print("Train Correct: %f%%   \r" % ((n_correct/(i+1))*100) )
-        if phase == 'val' and n_correct >= 1:
-            print("Val Correct: %f%%   \r" % ((n_correct/(i+1))*100) )
-        if phase == 'val' and n_correct/(i+1) > best_acc:
-            best_acc = n_correct/(i+1)
-        best_model_wts = copy.deepcopy(model.state_dict())
-model.load_state_dict(best_model_wts)
+            if preds[1,] == target[1,]:
+                n_correct += 1
+        if i > 0:
+            print(phase, (n_correct/(i*2)) )
+    if phase == 'val' and n_correct > best_acc:
+        best_acc = n_correct/(i)
+    best_model_wts = copy.deepcopy(model.state_dict())
+
+
+# model.load_state_dict(best_model_wts)
 torch.save(model, ('siamese_sliding'+str(best_acc)))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#
